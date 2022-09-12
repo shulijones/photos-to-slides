@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Export Album to Google Slides</title>
+    <meta charset="utf-8" />
+  </head>
+  <body>
+    <p>Export Album to Google Slides:</p>
+    <p>
+      With a hardcoded Google Photos album ID and Google Slides ID, export each photo to a single
+      slide.
+    </p>
+
+    <!--Add buttons to initiate auth sequence and sign out-->
+    <button id="authorize_button" onclick="handleAuthClick()">Authorize</button>
+    <button id="signout_button" onclick="handleSignoutClick()">Sign Out</button>
+    <button id="presentation_button" onclick="handlePresentationClick()">Set Presentation</button>
+    <button id="album_button" onclick="handleAlbumClick()">Choose Album</button>
+    <button id="export_button" onclick="handleExportClick()">Export Photos to Presentation</button>
+
+    <pre id="content" style="white-space: pre-wrap;"></pre>
+    <div id="presentation" style="visibility:hidden">
+      <input id="presentation-link" type="text">
+      <input type="submit" onclick="savePresentationLink()" value="Save Presentation">
+    </div>
+    <div id="album-names"></div> <!-- Put submit button here to start with and prepend buttons somehow -->
+
+    <script type="text/javascript">
+      /* exported gapiLoaded */
+      /* exported gisLoaded */
+      /* exported handleAuthClick */
+      /* exported handleSignoutClick */
+
+      // TODO(developer): Set to client ID and API key from the Developer Console
+      const CLIENT_ID = '1020653963797-3f84m28d0b0luec011o3co6fppcc4o00.apps.googleusercontent.com';
+      const API_KEY = 'AIzaSyBWN81RTcZL9c4RnDButprJQey0EWjS7XY';
+
+      // Discovery doc URL for APIs used by the quickstart
+      const DISCOVERY_DOC = 'https://slides.googleapis.com/$discovery/rest?version=v1';
+
+      // Authorization scopes required by the API; multiple scopes can be
+      // included, separated by spaces.
+      // const SCOPES = 'https://www.googleapis.com/auth/presentations.readonly';
+      const SCOPES = 'https://www.googleapis.com/auth/presentations https://www.googleapis.com/auth/photoslibrary.readonly';
+
+      let tokenClient;
+      let gapiInited = false;
+      let gisInited = false;
+
+      let presentationId;
+      let albumInfo;
+
+      document.getElementById('authorize_button').style.visibility = 'hidden';
+      document.getElementById('signout_button').style.visibility = 'hidden';
+
+
+      /**
+       * Callback after api.js is loaded.
+       */
+      function gapiLoaded() {
+        gapi.load('client', intializeGapiClient);
+      }
+
+      /**
+       * Callback after the API client is loaded. Loads the
+       * discovery doc to initialize the API.
+       */
+      async function intializeGapiClient() {
+        await gapi.client.init({
+          apiKey: API_KEY,
+          discoveryDocs: [DISCOVERY_DOC],
+        });
+        gapiInited = true;
+        maybeEnableButtons();
+      }
+
+      /**
+       * Callback after Google Identity Services are loaded.
+       */
+      function gisLoaded() {
+        tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: CLIENT_ID,
+          scope: SCOPES,
+          callback: '', // defined later
+        });
+        gisInited = true;
+        maybeEnableButtons();
+      }
+
+      /**
+       * Enables user interaction after all libraries are loaded.
+       */
+      function maybeEnableButtons() {
+        if (gapiInited && gisInited) {
+          document.getElementById('authorize_button').style.visibility = 'visible';
+        }
+      }
+
+      /**
+       *  Sign in the user upon button click.
+       */
+      function handleAuthClick() {
+        tokenClient.callback = async (resp) => {
+          if (resp.error !== undefined) {
+            throw (resp);
+          }
+          document.getElementById('signout_button').style.visibility = 'visible';
+          document.getElementById('authorize_button').innerText = 'Refresh';
+        };
+
+        if (gapi.client.getToken() === null) {
+          // Prompt the user to select a Google Account and ask for consent to share their data
+          // when establishing a new session.
+          tokenClient.requestAccessToken({prompt: 'consent'});
+        } else {
+          // Skip display of account chooser and consent dialog for an existing session.
+          tokenClient.requestAccessToken({prompt: ''});
+        }
+      }
+
+      /**
+       *  Sign out the user upon button click.
+       */
+      function handleSignoutClick() {
+        const token = gapi.client.getToken();
+        if (token !== null) {
+          google.accounts.oauth2.revoke(token.access_token);
+          gapi.client.setToken('');
+          document.getElementById('content').innerText = '';
+          document.getElementById('authorize_button').innerText = 'Authorize';
+          document.getElementById('signout_button').style.visibility = 'hidden';
+        }
+      }
+
+      function handlePresentationClick() {
+        document.getElementById('presentation').style.visibility = 'visible';
+      }
+
+      function savePresentationLink() {
+        // link looks like https://docs.google.com/presentation/d/{DESIRED_ID}/{OTHER_STUFF}
+        const linkParts = document.getElementById('presentation-link').value.split('/d/');
+        presentationId = linkParts[1].split('/')[0];
+        console.log(presentationId);
+        document.getElementById('authorize_button').style.visibility = 'hidden';
+      }
+
+      /*
+      * Export the user's photos upon button click.
+      */
+      function handleExportClick() {
+        tokenClient.callback = async (resp) => {
+          if (resp.error !== undefined) {
+            throw (resp);
+          }
+          await addPhotoSlides();
+        };
+
+        if (gapi.client.getToken() === null) {
+          // Prompt the user to select a Google Account and ask for consent to share their data
+          // when establishing a new session.
+          tokenClient.requestAccessToken({prompt: 'consent'});
+        } else {
+          // Skip display of account chooser and consent dialog for an existing session.
+          tokenClient.requestAccessToken({prompt: ''});
+        }
+      }
+
+      function handleAlbumClick() {
+        console.log("handler called");
+        tokenClient.callback = async (resp) => {
+          if (resp.error !== undefined) {
+            console.log("error");
+            throw (resp);
+          } else {
+            console.log("noterror");
+          }
+          console.log("awaiting");
+          await getAlbums();
+        };
+
+
+        if (gapi.client.getToken() === null) {
+          // Prompt the user to select a Google Account and ask for consent to share their data
+          // when establishing a new session.
+          tokenClient.requestAccessToken({prompt: 'consent'});
+        } else {
+          // Skip display of account chooser and consent dialog for an existing session.
+          tokenClient.requestAccessToken({prompt: ''});
+        }
+      }
+
+      async function getAlbums() {
+        console.log("called");
+        gapi.client.request({
+          'path': 'https://photoslibrary.googleapis.com/v1/albums',
+          'method': 'GET',
+        }).then(function (response) {
+          console.log(JSON.parse(response.body));
+          albums = JSON.parse(response.body).albums;
+          const options = document.getElementById('album-names');
+          for (album of albums) {
+            const option = document.createElement("input");
+            const label = document.createElement("label");
+            option.setAttribute('value', `${album.mediaItemsCount}--${album.id}`);
+            option.setAttribute("type", "radio");
+            option.setAttribute('name', 'album');
+            label.setAttribute('for', album.title);
+            label.appendChild(document.createTextNode(`${album.title} (${album.mediaItemsCount} photos)`));
+            options.appendChild(option);
+            options.appendChild(label);
+            options.appendChild(document.createElement('br'));
+          }
+          const submit = document.createElement("input");
+          submit.setAttribute("type", "submit");
+          submit.setAttribute('value', "Submit");
+          submit.setAttribute('onclick', "albumInfo = getSelectedAlbumInfo();console.log(albumInfo);");
+          options.appendChild(submit);
+          console.log('albuminfo is', albumInfo);
+        });
+      }
+
+      function getSelectedAlbumInfo() {
+        // const options = document.getElementById('album-names');
+        const selected = document.querySelector('input[type=radio][name=album]:checked');
+        console.log('s is', selected);
+        return selected.value.split('--');
+      }
+
+      /*
+      * Add the slides from a specified Google Photos album to a specific Google Slides slideshow,
+      * one photo per slide.
+      */
+      async function addPhotoSlides() {
+        const createrequests = [];
+        const addrequests = [];
+
+
+        gapi.client.request({
+          'path': 'https://photoslibrary.googleapis.com/v1/mediaItems:search',
+          'method': 'POST',
+          'body': {
+            "albumId": albumInfo[1],
+            "pageSize": albumInfo[0], // This code only reads the first page, so set pageSize = album size
+          }
+        }).then(function (response) {
+          const album = (JSON.parse(response.body)).mediaItems;
+          // Change this to change which slideshow they export to
+          pageId = 'pageid';
+          imageId = 'imageid';
+          counter = 0;
+          for (image of album) {
+            createrequests.push({
+              createSlide: {
+                objectId: pageId + counter,
+                slideLayoutReference: {
+                  predefinedLayout: 'ONE_COLUMN_TEXT',
+                },
+              },
+            });
+
+            const imageUrl = image.baseUrl + "=w1500";
+            const emu4M = {
+              magnitude: 4000000,
+              unit: 'EMU',
+            };
+            addrequests.push({
+              createImage: {
+                objectId: imageId + counter,
+                url: imageUrl,
+                elementProperties: {
+                  pageObjectId: pageId + counter,
+                  size: {
+                    height: emu4M,
+                    width: emu4M,
+                  },
+                  transform: {
+                    scaleX: 1,
+                    scaleY: 1,
+                    translateX: 3500000,
+                    translateY: 1000000,
+                    unit: 'EMU',
+                  },
+                },
+              },
+            });     
+
+            counter += 1;
+          }
+          // console.log("counter is", counter);
+          // console.log("cr", createrequests.length);
+          // console.log("ar", addrequests.length);
+
+          try {
+            gapi.client.slides.presentations.batchUpdate({
+              presentationId: presentationId,
+              requests: createrequests,
+            }).then((createSlideResponse) => {
+              console.log(`Created slide with ID: ${createSlideResponse.result.replies[0].createSlide.objectId}`);
+              console.log(`Created ${createSlideResponse.result.replies.length} slides`);
+              gapi.client.slides.presentations.batchUpdate({
+                presentationId: presentationId,
+                requests: addrequests,
+              }).then((createImageResponse) => {
+                console.log(`Created image with ID: ${createImageResponse.result.replies[0].createImage.objectId}`);
+                console.log(`Created ${createImageResponse.result.replies.length} images`);
+              });
+            });
+          } catch (err) {
+            document.getElementById('content').innerText = err.message;
+            return;
+          }
+        });
+      }
+    </script>
+    <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+    <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+  </body>
+</html>
